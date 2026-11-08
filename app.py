@@ -27,7 +27,7 @@ with st.sidebar:
     level = st.selectbox("Education Level", ["Matric (9th/10th)", "Intermediate (11th/12th)"])
     
     # Allow the user to change the model if they want
-    model_choice = st.selectbox("AI Model", ["google/gemini-flash-1.5", "openai/gpt-4o-mini", "meta-llama/llama-3-8b-instruct"])
+    model_choice = st.selectbox("AI Model", ["liquid/lfm-3-1.7b:free", "openai/gpt-4o-mini", "meta-llama/llama-3-8b-instruct"])
     st.info("Sabaq AI is now powered by OpenRouter!")
 
 # --- Helper Functions ---
