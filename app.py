@@ -4,11 +4,9 @@ import PyPDF2
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 # --- OpenRouter Configuration ---
-# Initialize OpenAI client but point it to OpenRouter's URL
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -25,10 +23,11 @@ with st.sidebar:
     st.header("Settings")
     language = st.selectbox("Choose Explanation Language", ["English", "Urdu (اردو)", "Roman Urdu"])
     level = st.selectbox("Education Level", ["Matric (9th/10th)", "Intermediate (11th/12th)"])
-    
-    # Allow the user to change the model if they want
-    model_choice = st.selectbox("AI Model", ["liquid/lfm-3-1.7b:free", "openai/gpt-4o-mini", "meta-llama/llama-3-8b-instruct"])
-    st.info("Sabaq AI is now powered by OpenRouter!")
+    model_choice = st.selectbox("AI Model", ["liquid/lfm-3-1.7b:free", "openai/gpt-4o-mini"])
+    if st.button("Clear All Data"):
+        st.session_state.textbook_text = ""
+        st.session_state.questions_list = []
+        st.rerun()
 
 # --- Helper Functions ---
 def extract_text_from_pdf(uploaded_file):
@@ -41,23 +40,33 @@ def extract_text_from_pdf(uploaded_file):
 def get_ai_response(system_prompt, user_prompt):
     try:
         response = client.chat.completions.create(
-            model=model_choice, # Uses the model selected in sidebar
+            model=model_choice,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            extra_headers={
-                "HTTP-Referer": "https://sabaq-ai.streamlit.app/", # Required by OpenRouter
-                "X-Title": "Sabaq AI", # Required by OpenRouter
-            }
+            extra_headers={"HTTP-Referer": "https://sabaq-ai.streamlit.app/", "X-Title": "Sabaq AI"}
         )
         return response.choices[0].message.content
     except Exception as e:
         return f"Error: {str(e)}"
 
 def generate_questions(text, level):
-    system_prompt = f"You are an expert teacher for the Pakistani {level} board exams."
-    user_prompt = f"Based on this text, create 3 MCQs and 2 Short Questions. Text: {text}"
+    system_prompt = f"You are an expert teacher for Pakistani {level} board exams."
+    user_prompt = f"""
+    Based on the textbook text provided, create exactly 5 practice questions.
+    
+    CRITICAL INSTRUCTION: 
+    Separate every single question with the symbol '###'. 
+    Do not write 'Question 1' or 'Answer'. 
+    Just write the question, then '###', then the next question.
+    
+    Example:
+    What is photosynthesis? ### Define Gravity. ### What is the capital of Pakistan?
+    
+    Textbook Content:
+    {text}
+    """
     return get_ai_response(system_prompt, user_prompt)
 
 def check_answer(question, student_answer, textbook_text, lang):
@@ -67,7 +76,7 @@ def check_answer(question, student_answer, textbook_text, lang):
 
 # --- Main Application Logic ---
 if "textbook_text" not in st.session_state: st.session_state.textbook_text = ""
-if "questions" not in st.session_state: st.session_state.questions = ""
+if "questions_list" not in st.session_state: st.session_state.questions_list = []
 
 uploaded_file = st.file_uploader("Upload Chapter PDF", type="pdf")
 if uploaded_file is not None and st.button("Process Chapter"):
@@ -75,17 +84,29 @@ if uploaded_file is not None and st.button("Process Chapter"):
         st.session_state.textbook_text = extract_text_from_pdf(uploaded_file)
         st.success("Chapter uploaded!")
 
-if st.session_state.textbook_text and st.button("Generate Practice Questions"):
-    with st.spinner("Generating..."):
-        st.session_state.questions = generate_questions(st.session_state.textbook_text, level)
-        st.markdown("### 📝 Your Practice Test")
-        st.write(st.session_state.questions)
+if st.session_state.textbook_text:
+    if st.button("Generate Practice Quiz"):
+        with st.spinner("Finding all questions..."):
+            raw_text = generate_questions(st.session_state.textbook_text, level)
+            # Split by the special symbol '###'
+            st.session_state.questions_list = [q.strip() for q in raw_text.split('###') if q.strip()]
+            st.success(f"Found {len(st.session_state.questions_list)} questions!")
 
-if st.session_state.questions:
+# --- QUIZ INTERFACE ---
+if st.session_state.questions_list:
     st.divider()
-    user_question = st.text_input("Paste the question:")
-    user_answer = st.text_area("Type your answer:")
-    if st.button("Check My Answer") and user_answer:
-        with st.spinner("Evaluating..."):
-            feedback = check_answer(user_question, user_answer, st.session_state.textbook_text, language)
-            st.info(feedback)
+    st.markdown("### ✍️ Your Personalized Test Paper")
+    
+    for i, q in enumerate(st.session_state.questions_list):
+        # Using an expander to keep the UI clean
+        with st.expander(f"Question {i+1}: {q[:60]}...", expanded=True):
+            st.markdown(f"**{q}**")
+            user_ans = st.text_area(f"Your answer for Q{i+1}", key=f"ans_{i}", label_visibility="collapsed")
+            
+            if st.button(f"Check Answer {i+1}", key=f"btn_{i}"):
+                if user_ans:
+                    with st.spinner("Evaluating..."):
+                        feedback = check_answer(q, user_ans, st.session_state.textbook_text, language)
+                        st.info(feedback)
+                else:
+                    st.warning("Please type your answer first!")
